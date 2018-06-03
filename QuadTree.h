@@ -60,19 +60,42 @@ class Quad
 
 public:
 	Quad(const std::vector<Node*>& initialNodes);
-	Quad(Quad *parent, Node *inNode, uint64_t address, Point inTopLeft, Point inBottomRight);
+	Quad(Point inTopLeft, Point inBottomRight);
 
 	// returns true if inserted, otherwise false
-	bool insert(Node*);
+	bool insert(Node* inNode);
+
+	// returns true if removed, otherwise false. Caller must delete `node`.
+	bool remove(Node* inNode);
+
+	// returns true if this quad has no nodes
+	bool isEmpty();
+
+	// returns the nearest neighbor, including p itself if a Node is located at p
 	Node* getNearestNeighbor(Point p);
+
+	// returns the nearest neighbor, excluding the point p if a Node is located at p
 	Node* getNearestNeighborNoExactMatch(Point p);
+
+	// get the lowest quad in the tree matching the target address
 	Quad* getQuad(uint64_t targetAddress);
+
+	// get the lowest quad in the tree containing the given point
 	Quad* findSmallestContainingQuad(Point);
+
+	// returns true if the given point is in this quad
 	bool isInQuad(Point);
+
+	// returns the address of this quad
 	uint64_t getAddress();
+
+	// computes the number of nodes by navigating the entire tree to count them - O(n)
+	int getSizeSlow();
 
 	void getNearestNodeInside(Point p, uint64_t& closestDistSquared, Node*& closestNode);
 
 private:
+	Quad(Quad *parent, Node *inNode, uint64_t address, Point inTopLeft, Point inBottomRight);
+	bool insertImpl(Node* inNode);
 	Node* getNearestNeighbor(Point p, bool excludeExactMatch);
 };

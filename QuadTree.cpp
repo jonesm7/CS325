@@ -122,7 +122,7 @@ double Point::distTo(const Point& other)
 {
 	int xdiff = x - other.x;
 	int ydiff = y - other.y;
-	return sqrt(x*x + y*y);
+	return sqrt(xdiff*xdiff + ydiff*ydiff);
 }
 
 Node::Node(Point inLoc, int inVal): loc(inLoc)
@@ -170,10 +170,22 @@ Quad::Quad(const vector<Node*>& initialNodes)
 	}
 
 	for (int i = 1; i < initialNodes.size(); i++) {
-		insert(initialNodes[i]);
+		insertImpl(initialNodes[i]);
 	}
 }
 
+Quad::Quad(Point inTopLeft, Point inBottomRight)
+{
+	topLeft = inTopLeft;
+	bottomRight = inBottomRight;
+	parent = NULL;
+	address = 0;
+
+	node = NULL;
+	for (int i = 0; i < NUM_QUADS; i++) {
+		children[i] = NULL;
+	}
+}
 
 Quad::Quad(Quad *par, Node *inNode, uint64_t addr, Point inTopLeft, Point inBottomRight)
 {
@@ -191,6 +203,17 @@ Quad::Quad(Quad *par, Node *inNode, uint64_t addr, Point inTopLeft, Point inBott
 // Insert a node into the quadtree
 bool Quad::insert(Node *inNode)
 {
+	if (isEmpty()) {
+		node = inNode;
+		return true;
+	}
+	else {
+		return insertImpl(inNode);
+	}
+}
+
+bool Quad::insertImpl(Node *inNode)
+{
 	if (inNode == NULL) {
 		return false;
 	}
@@ -205,7 +228,7 @@ bool Quad::insert(Node *inNode)
 	if (node != NULL) {
 		Node *existingNode = node;
 		node = NULL;
-		if (!insert(existingNode)) {
+		if (!insertImpl(existingNode)) {
 			return false;
 		}
 	}
@@ -223,7 +246,7 @@ bool Quad::insert(Node *inNode)
 						(topLeft.y + bottomRight.y) / 2));
 			}
 			else {
-				children[TOP_LEFT]->insert(inNode);
+				children[TOP_LEFT]->insertImpl(inNode);
 			}
 		}
 		// bottom left
@@ -240,7 +263,7 @@ bool Quad::insert(Node *inNode)
 						bottomRight.y));
 			}
 			else {
-				children[BOT_LEFT]->insert(inNode);
+				children[BOT_LEFT]->insertImpl(inNode);
 			}
 		}
 	}
@@ -259,7 +282,7 @@ bool Quad::insert(Node *inNode)
 						(topLeft.y + bottomRight.y) / 2));
 			}
 			else {
-				children[TOP_RIGHT]->insert(inNode);
+				children[TOP_RIGHT]->insertImpl(inNode);
 			}
 		}
 		// bottom right
@@ -275,11 +298,99 @@ bool Quad::insert(Node *inNode)
 					Point(bottomRight.x, bottomRight.y));
 			}
 			else {
-				children[BOT_RIGHT]->insert(inNode);
+				children[BOT_RIGHT]->insertImpl(inNode);
 			}
 		}
 	}
 	return true;
+}
+
+bool Quad::remove(Node* inNode)
+{
+	Quad* curQuad = findSmallestContainingQuad(inNode->loc);
+	if (curQuad->node != inNode) {
+		return false;
+	}
+	curQuad->node = NULL;
+	if (this == curQuad) {
+		return true;
+	}
+
+	// count siblings, and NULL-out the child pointer of the removed node
+	Quad* parentQuad = curQuad->parent;
+	int siblingCount = 0;
+	int lastSiblingIdx = -1;
+	Quad* lastSibling = NULL;
+	for (int i = 0; i < NUM_QUADS; i++) {
+		if (parentQuad->children[i] == curQuad) {
+			parentQuad->children[i] = NULL;
+		}
+		else if (parentQuad->children[i] != NULL) {
+			siblingCount++;
+			lastSibling = parentQuad->children[i];
+			lastSiblingIdx = i;
+		}
+	}
+	delete curQuad;
+	// if there is more than one other node in this quadrant, stop.
+	// siblingCount should never be 0 here
+	if (siblingCount > 1 || (siblingCount == 1 && lastSibling->node == NULL)) {
+		return true;
+	}
+
+	// the last sibling only has 1 node, so promote it to the parent quad
+	parentQuad->children[lastSiblingIdx] = NULL;
+	parentQuad->node = lastSibling->node;
+	delete lastSibling;
+
+	// Move the node up until there are siblings or we reach the root
+	curQuad = parentQuad;
+	while (curQuad->parent != NULL) {
+		Quad* parentQuad = curQuad->parent;
+		int curQuadIdx = -1;
+		siblingCount = 0;
+		for (int i = 0; i < NUM_QUADS; i++) {
+			if (parentQuad->children[i] == curQuad) {
+				curQuadIdx = i;
+			}
+			else if (parentQuad->children[i] != NULL) {
+				siblingCount++;
+			}
+		}
+		if (siblingCount == 0) {
+			parentQuad->node = curQuad->node;
+			parentQuad->children[curQuadIdx] = NULL;
+			delete curQuad;
+		}
+		else {
+			return true;
+		}
+		curQuad = parentQuad;
+	}
+	return true;
+}
+
+bool Quad::isEmpty()
+{
+	if (node != NULL) {
+		return false;
+	}
+	else {
+		// count up children
+		int childrenCount = 0;
+		for (int i = 0; i < NUM_QUADS; i++) {
+			if (children[i] != NULL) {
+				childrenCount++;
+			}
+		}
+		if (childrenCount == 0) {
+			return true;
+		}
+		else {
+			return false;
+		}
+	}
+
 }
 
 Node* Quad::getNearestNeighbor(Point p)
@@ -294,10 +405,6 @@ Node* Quad::getNearestNeighborNoExactMatch(Point p)
 
 Node* Quad::getNearestNeighbor(Point p, bool excludeExactMatch)
 {
-	if (p.x == 3099 && p.y == 8971) {
-		int a = 0;
-	}
-
 	// Current quad cannot contain it
 	if (!isInQuad(p)) {
 		return NULL;
@@ -341,6 +448,46 @@ Node* Quad::getNearestNeighbor(Point p, bool excludeExactMatch)
 		neighborQuad->getNearestNodeInside(p, closestDistSquared, closestNode);
 	}
 
+	// Check and see if the distance from the input point to the closest point
+	// found in the surrounding 8 quads is longer than the distance from
+	// the input point to any of the edges of the 8 quads. If so, we need to check
+	// in the quads surrounding the adjacent 8.
+	int quadSize = containingQuad->bottomRight.x - containingQuad->topLeft.x;
+	float closestDist = sqrt(closestDistSquared);
+	bool expand1 = false;
+	expand1 |= (p.x - containingQuad->topLeft.x) + quadSize < closestDist;
+	expand1 |= (containingQuad->bottomRight.x - p.x) + quadSize < closestDist;
+	expand1 |= (p.y - containingQuad->topLeft.y) + quadSize < closestDist;
+	expand1 |= (containingQuad->bottomRight.y - p.y) + quadSize < closestDist;
+
+	if (expand1) {
+		Quad* neighborQuad = containingQuad;
+		uint64_t nextAddress = QT_getNeighborAddress(containingQuad->address, NC_LEFT_UP);
+		neighborQuad = neighborQuad->getQuad(nextAddress);
+		nextAddress = QT_getNeighborAddress(nextAddress, NC_LEFT_UP);
+		neighborQuad = neighborQuad->getQuad(nextAddress);
+
+		NeighborCode sequence[] = {
+			NC_RIGHT, NC_RIGHT, NC_RIGHT, NC_RIGHT,
+			NC_DOWN, NC_DOWN, NC_DOWN, NC_DOWN,
+			NC_LEFT, NC_LEFT, NC_LEFT, NC_LEFT,
+			NC_UP, NC_UP, NC_UP, NC_UP
+		};
+		for (int i = 0; i < 16; i++) {
+			nextAddress = QT_getNeighborAddress(nextAddress, sequence[i]);
+			neighborQuad = neighborQuad->getQuad(nextAddress);
+			if (neighborQuad == NULL) {
+				continue;
+			}
+			if (QT_isXPrefixOfY(neighborQuad->address, containingQuad->address)) {
+				// the lowest quad containing the neighbor also contains this quad,
+				// so searching it is redundant
+				continue;
+			}
+			neighborQuad->getNearestNodeInside(p, closestDistSquared, closestNode);
+		}
+	}
+
 	return closestNode;
 }
 
@@ -369,6 +516,7 @@ Quad* Quad::getQuad(uint64_t targetAddress) {
 			curQuad = curQuad->children[nextQuadNum];
 		}
 		else {
+			// There are no nodes in the area of the desired quad
 			break;
 		}
 	}
@@ -459,4 +607,19 @@ bool Quad::isInQuad(Point p)
 
 uint64_t Quad::getAddress() {
 	return address;
+}
+
+int Quad::getSizeSlow() {
+	if (node != NULL) {
+		return 1;
+	}
+	else {
+		int childrenSizes = 0;
+		for (int i = 0; i < NUM_QUADS; i++) {
+			if (children[i] != NULL) {
+				childrenSizes += children[i]->getSizeSlow();
+			}
+		}
+		return childrenSizes;
+	}
 }
