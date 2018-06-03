@@ -14,9 +14,31 @@ Copyright 2018 Mindy Jones
 using namespace std;
 using namespace std::chrono;
 
-void nearestNeighborQuadTree(const vector<Node*>& cities, vector<Node*>& tour) {
+struct PointHash
+{
+	std::size_t operator()(Point const& p) const noexcept
+	{
+		std::size_t h1 = std::hash<int>{}(p.x);
+		std::size_t h2 = std::hash<int>{}(p.y);
+		return h1 ^ (h2 << 1); // or use boost::hash_combine (see Discussion)
+	}
+};
+
+void nearestNeighborQuadTree(const vector<Node*>& inCities, vector<Node*>& outTour) {
+	unordered_map<Point, vector<Node*>, PointHash> pointsToCities;
+	vector<Node*> cities;
+	for (int i = 0; i < inCities.size(); i++) {
+		Point cityLoc = inCities[i]->loc;
+		pointsToCities[cityLoc].push_back(inCities[i]);
+		// Only include cities that are the first at a particular location
+		// (Duplicates will be added back at the end)
+		if (pointsToCities[cityLoc].size() == 1) {
+			cities.push_back(inCities[i]);
+		}
+	}
 	Quad unusedQuadTree = Quad(cities);
 
+	vector<Node*> tour;
 	tour.push_back(cities[0]);
 	unusedQuadTree.remove(cities[0]);
 
@@ -33,7 +55,18 @@ void nearestNeighborQuadTree(const vector<Node*>& cities, vector<Node*>& tour) {
 		lastNode = closestNode;
 		i++;
 	}
+
+	for (int i = 0; i < tour.size(); i++) {
+		outTour.push_back(tour[i]);
+		Point cityLoc = tour[i]->loc;
+		// Add all the cities that were filtered out
+		// If none were filtered out for this location, this will be a no-op.
+		for (int j = 1; j < pointsToCities[cityLoc].size(); j++) {
+			outTour.push_back(pointsToCities[cityLoc][j]);
+		}
+	}
 }
+
 
 int rounded(double val) {
 	return val + 0.5;
