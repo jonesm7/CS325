@@ -170,6 +170,106 @@ int getTourLength(const vector<Node*>& tour) {
 	return length;
 }
 
+// Based on http://tsp-basics.blogspot.com/2017/03/shifting-segment.html
+void shiftSegment(vector<Node*>& tour, int i, int j, int k) {
+	int segmentSize = (j - i + tour.size()) % tour.size();
+	int shiftSize = ((k - i + tour.size()) - segmentSize + tour.size()) % tour.size();
+	int offset = i + 1 + shiftSize;
+	vector<Node*> segment;
+	for (int pos = 0; pos < segmentSize; pos++) {
+		segment.push_back(tour[(pos + i + 1) % tour.size()]);
+	}
+	int pos = (i + 1) % tour.size();
+	for (int counter = 1; counter <= shiftSize; counter++) {
+		tour[pos] = tour[(pos + segmentSize) % tour.size()];
+		pos = (pos + 1) % tour.size();
+	}
+	for (pos = 0; pos < segmentSize; pos++) {
+		tour[(pos + offset) % tour.size()] = segment[pos];
+	}
+}
+
+/*
+Based on http://tsp-basics.blogspot.com/2017/03/or-opt.html
+Assumes: X1!=Z1
+         X2==successor(X1); Y2==successor(Y1); Z2==successor(Z1)
+*/
+int gainFromSegmentShift(Point x1, Point x2, Point y1, Point y2, Point z1, Point z2) {
+	int deleteLength = x1.distTo(x2) + y1.distTo(y2) + z1.distTo(z2);
+	int addLength = x1.distTo(y2) + z1.distTo(x2) + y1.distTo(z2);
+	return deleteLength - addLength;
+}
+
+/*
+Based on http://tsp-basics.blogspot.com/2017/03/or-opt.html
+*/
+void performOrOpt(vector<Node*>& tour) {
+	bool locallyOptimal = false;
+	int i;
+	int j;
+	int k;
+	int optRuns = 0;
+	high_resolution_clock::time_point start = high_resolution_clock::now();
+	high_resolution_clock::time_point lastPrint = high_resolution_clock::now();
+
+	while (!locallyOptimal) {
+		//cout << "---" << endl;
+		//cout << "after or-opt run " << optRuns << ": " << getTourLength(tour) << endl;
+		optRuns++;
+		high_resolution_clock::time_point now = high_resolution_clock::now();
+		
+		auto lastPrintDuration = duration_cast<microseconds>(now - lastPrint).count() / 1000000.0f;
+		if (lastPrintDuration > 10) {
+			auto duration = duration_cast<microseconds>(now - start).count() / 1000000.0f;
+			cout << "  time: " << duration << " seconds" << endl;
+			lastPrint = high_resolution_clock::now();
+		}
+
+		locallyOptimal = true;
+		for (int segmentLen = 3; segmentLen >= 1; segmentLen--) {
+			bool break2 = false;
+			for (int pos = 0; pos < tour.size() && !break2; pos++) {
+				int i = pos;
+				Point x1 = tour[i]->loc;
+				Point x2 = tour[(i + 1) % tour.size()]->loc;
+				int j = (i + segmentLen) % tour.size();
+				Point y1 = tour[j]->loc;
+				Point y2 = tour[(j + 1) % tour.size()]->loc;
+				
+				int shiftCount = 0;
+				int posShift = segmentLen + 1;
+				int negShift = tour.size() - 1;
+				while (posShift < 50 && negShift > tour.size() - 50) {
+					int shift;
+					if (shiftCount % 2 == 0) {
+						shift = posShift;
+						posShift++;
+					}
+					else {
+						shift = negShift;
+						negShift--;
+					}
+					shiftCount++;
+
+					int k = (i + shift) % tour.size();
+					Point z1 = tour[k]->loc;
+					Point z2 = tour[(k + 1) % tour.size()]->loc;
+
+					if (gainFromSegmentShift(x1, x2, y1, y2, z1, z2) > 0) {
+						shiftSegment(tour, i, j, k);
+						//cout << "i = " << i << ", j = " << j << ", k = " << k << "; shift = " << shift << endl;
+						locallyOptimal = false;
+						break2 = true;
+						break;
+					}
+				}
+			}
+
+		}
+	}
+}
+
+
 void printTour(const vector<Node*>& tour, string outputFileBase) {
 	int length = 0;
 	for (int i = 0; i < tour.size(); i++) {
@@ -232,20 +332,29 @@ int main(int argc, char * argv[])
 	vector<Node*> tour;
 	high_resolution_clock::time_point t1 = high_resolution_clock::now();
 	nearestNeighborQuadTree(cities, tour);
+	//nearestNeighborNSquared(cities, tour);
+	//checkQuadTree(cities);
 	high_resolution_clock::time_point t2 = high_resolution_clock::now();
 	auto duration = duration_cast<microseconds>(t2 - t1).count() / 1000000.0f;
 	cout << "tour construction: " << duration << " seconds" << endl;
+	cout << "tour length A: " << getTourLength(tour) << endl;
 
 	high_resolution_clock::time_point t3 = high_resolution_clock::now();
 	twoOptImprove(tour);
 	high_resolution_clock::time_point t4 = high_resolution_clock::now();
 	auto duration2 = duration_cast<microseconds>(t4 - t3).count() / 1000000.0f;
-	cout << "tour optimization: " << duration2 << " seconds" << endl;
+	cout << "tour optimization 1 time: " << duration2 << " seconds" << endl;
+	cout << "tour length B: " << getTourLength(tour) << endl;
 
-	auto durationTotal = duration_cast<microseconds>(t4 - t1).count() / 1000000.0f;
+	high_resolution_clock::time_point t5 = high_resolution_clock::now();
+	performOrOpt(tour);
+	high_resolution_clock::time_point t6 = high_resolution_clock::now();
+	auto duration3 = duration_cast<microseconds>(t6 - t5).count() / 1000000.0f;
+	cout << "tour optimization 2 time: " << duration3 << " seconds" << endl;
+	cout << "tour length B: " << getTourLength(tour) << endl;
+
+	auto durationTotal = duration_cast<microseconds>(t6 - t1).count() / 1000000.0f;
 	cout << "total time: " << durationTotal << " seconds" << endl;
-
-	cout << "tour length: " << getTourLength(tour) << endl;
 
 	printTour(tour, inFilename);
 
