@@ -475,7 +475,12 @@ Node* Quad::getNearestNeighbor(Point p, bool excludeExactMatch)
 		};
 		for (int i = 0; i < 16; i++) {
 			nextAddress = QT_getNeighborAddress(nextAddress, sequence[i]);
-			neighborQuad = neighborQuad->getQuad(nextAddress);
+			if (neighborQuad != NULL) {
+				neighborQuad = neighborQuad->getQuad(nextAddress);
+			}
+			else {
+				neighborQuad = containingQuad->getQuad(nextAddress);
+			}
 			if (neighborQuad == NULL) {
 				continue;
 			}

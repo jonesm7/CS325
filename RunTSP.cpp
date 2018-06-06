@@ -212,7 +212,13 @@ void performOrOpt(vector<Node*>& tour) {
 	high_resolution_clock::time_point start = high_resolution_clock::now();
 	high_resolution_clock::time_point lastPrint = high_resolution_clock::now();
 
-	while (!locallyOptimal) {
+	int searchWindow = 0;
+	int maxSearch = 1000;
+	while (searchWindow < maxSearch) {
+		if (locallyOptimal) {
+			searchWindow += 10;
+		}
+
 		//cout << "---" << endl;
 		//cout << "after or-opt run " << optRuns << ": " << getTourLength(tour) << endl;
 		optRuns++;
@@ -239,7 +245,7 @@ void performOrOpt(vector<Node*>& tour) {
 				int shiftCount = 0;
 				int posShift = segmentLen + 1;
 				int negShift = tour.size() - 1;
-				while (posShift < 50 && negShift > tour.size() - 50) {
+				while (posShift < searchWindow && negShift > tour.size() - searchWindow) {
 					int shift;
 					if (shiftCount % 2 == 0) {
 						shift = posShift;
@@ -268,7 +274,6 @@ void performOrOpt(vector<Node*>& tour) {
 		}
 	}
 }
-
 
 void printTour(const vector<Node*>& tour, string outputFileBase) {
 	int length = 0;
