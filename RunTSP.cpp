@@ -203,7 +203,7 @@ int gainFromSegmentShift(Point x1, Point x2, Point y1, Point y2, Point z1, Point
 /*
 Based on http://tsp-basics.blogspot.com/2017/03/or-opt.html
 */
-void performOrOpt(vector<Node*>& tour) {
+void performOrOpt(vector<Node*>& tour, high_resolution_clock::time_point programStart) {
 	bool locallyOptimal = false;
 	int i;
 	int j;
@@ -214,7 +214,8 @@ void performOrOpt(vector<Node*>& tour) {
 
 	int searchWindow = 0;
 	int maxSearch = 1000;
-	while (searchWindow < maxSearch) {
+	while (searchWindow < maxSearch &&
+		duration_cast<microseconds>(high_resolution_clock::now() - programStart).count() / 1000000.0f < 178.0) {
 		if (locallyOptimal) {
 			searchWindow += 10;
 		}
@@ -315,6 +316,7 @@ int main(int argc, char * argv[])
 	}
 	cout << "Processing " << inFilename.c_str() << endl;
 
+	high_resolution_clock::time_point programStart = high_resolution_clock::now();
 	vector<Node*> cities;
 
 	while (infile) {
@@ -352,7 +354,7 @@ int main(int argc, char * argv[])
 	cout << "tour length B: " << getTourLength(tour) << endl;
 
 	high_resolution_clock::time_point t5 = high_resolution_clock::now();
-	performOrOpt(tour);
+	performOrOpt(tour, programStart);
 	high_resolution_clock::time_point t6 = high_resolution_clock::now();
 	auto duration3 = duration_cast<microseconds>(t6 - t5).count() / 1000000.0f;
 	cout << "tour optimization 2 time: " << duration3 << " seconds" << endl;
@@ -365,4 +367,5 @@ int main(int argc, char * argv[])
 
 	return 0;
 }
+
 
