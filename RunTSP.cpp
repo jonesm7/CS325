@@ -1,5 +1,6 @@
 /*
-Copyright 2018 Mindy Jones
+Copyright 2018 Mindy Jones, Ben Fridkis, Mathew Kagel
+Project for CS 325 (Algorithms), Oregon State University
 */
 
 #include <vector>
@@ -8,6 +9,8 @@ Copyright 2018 Mindy Jones
 #include <algorithm>
 #include <chrono>
 #include <unordered_map>
+#include <tuple>
+#include <queue>
 
 #include "QuadTree.h"
 
@@ -276,6 +279,125 @@ void performOrOpt(vector<Node*>& tour, high_resolution_clock::time_point program
 	}
 }
 
+//Structure to represent an edge. Each CityDistance structure
+//hold the distance to a particular city.
+struct CityDistance {
+	int city;
+	int nextCity;
+	int distanceToCity;
+	CityDistance() {};
+	CityDistance(int c, int nc, int dTC)
+	{
+		city = c;
+		nextCity = nc;
+		distanceToCity = dTC;
+	}
+};
+
+//Used to modify the stl priority_heap from max heap to min heap.
+//Reference: https://www.geeksforgeeks.org/implement-min-heap-using-stl/
+class myComparator
+{
+public:
+	int operator() (const CityDistance& c1, const CityDistance& c2)
+	{
+		return c1.distanceToCity > c2.distanceToCity;
+	}
+};
+
+typedef priority_queue<CityDistance, vector<CityDistance>, myComparator> CityDistancePQ;
+
+/**************************************************************************************
+**                          loadGraphOfMapAsPriorityQueue                            **
+** This function creates the map representation in memory. It returns a min-heap 	 **
+** holding all edges of the graph, with the edge that has the minimum distance as	 **
+** the "root" of the heap.                                                           **
+**************************************************************************************/
+void loadCityPriorityQueue(const vector<Node*>& cities, CityDistancePQ& graph)
+{
+	for (int i = 0; i < cities.size(); i++) {
+		for (int j = 0; j < cities.size(); j++) {
+			int dist = rounded(cities[i]->loc.distTo(cities[j]->loc));
+			graph.push(CityDistance(cities[i]->val, cities[j]->val, dist));
+		}
+	}
+}
+
+void buildGreedyTour(const vector<Node*>& cities, CityDistancePQ& graph, vector<Node*>& tspTour)
+{
+	int cityCount = cities.size();
+
+	//The vector of tuples below (cityTourPositionTracker)
+	//stores for each city a boolean to indicate if the city
+	//has been added to the tour, an integer to indicate
+	//the city's forward adjacent city (or "next city"),
+	//and an integer to indicate the city's backward adjacent
+	//city (or "previous city). A value of -1 for the next city
+	//item (2nd tuple item) or previous city item (3rd tuple item)
+	//indicates that a city has not been assigned a next city or
+	//previous city, respectively.
+	vector<tuple<bool, int, int>> cityTourPositionTracker;
+	for (int i = 0; i < cityCount; i++)
+	{
+		cityTourPositionTracker.push_back(make_tuple(false, -1, -1));
+	}
+
+	int distance = 0;
+	for (int i = 0; i < cityCount; i++)
+	{
+		bool edgeAdded = false;
+		while (!edgeAdded)
+		{
+			//The while loop below removes any ineligible edge (except for those
+			//that result in a cycle (which are handled further down). Ineligible
+			//edges removed here are those with cities (vertices) that already have
+			//two adjacent cities (vertices) and self-referential edges.
+			while (get<0>(cityTourPositionTracker[graph.top().city]) == true ||
+				get<2>(cityTourPositionTracker[graph.top().nextCity]) != -1 ||
+				graph.top().city == graph.top().nextCity)
+			{
+				graph.pop();
+			}
+			//Make sure the current edge
+			//will not create a cycle (except when adding the final
+			//edge) when added to the tour. If adding the edge will
+			//create a cycle, it is discarded and the compatibility
+			//checks restart in the next iteration fo the while loop.
+			int downstreamCity = graph.top().nextCity;
+			bool edgeCreatesCycle = false;
+
+			//(Note the last edge added is allowed to make the cycle, hence the condition
+			//"i < cityCount - 1" in the while loop below.)
+			while (get<0>(cityTourPositionTracker[downstreamCity]) == true &&
+				get<1>(cityTourPositionTracker[downstreamCity]) != -1 && i < cityCount - 1)
+			{
+				downstreamCity = get<1>(cityTourPositionTracker[downstreamCity]);
+				if (downstreamCity == graph.top().city)
+				{
+					graph.pop();
+					edgeCreatesCycle = true;
+					break;
+				}
+			}
+
+			if (!edgeCreatesCycle)
+			{
+				get<0>(cityTourPositionTracker[graph.top().city]) = true;
+				get<1>(cityTourPositionTracker[graph.top().city]) = graph.top().nextCity;
+				get<2>(cityTourPositionTracker[graph.top().nextCity]) = graph.top().city;
+				distance += graph.top().distanceToCity;
+				graph.pop();
+				edgeAdded = true;
+			}
+		}
+	}
+	for (int i = 0, j = 0; i < cityCount; i++)
+	{
+		tspTour.push_back(cities[j]);
+		j = get<1>(cityTourPositionTracker[j]);
+	}
+}
+
 void printTour(const vector<Node*>& tour, string outputFileBase) {
 	int length = 0;
 	for (int i = 0; i < tour.size(); i++) {
@@ -338,9 +460,13 @@ int main(int argc, char * argv[])
 
 	vector<Node*> tour;
 	high_resolution_clock::time_point t1 = high_resolution_clock::now();
+
 	nearestNeighborQuadTree(cities, tour);
-	//nearestNeighborNSquared(cities, tour);
-	//checkQuadTree(cities);
+	
+	//CityDistancePQ graph;
+	//loadCityPriorityQueue(cities, graph);
+	//buildGreedyTour(cities, graph, tour);
+
 	high_resolution_clock::time_point t2 = high_resolution_clock::now();
 	auto duration = duration_cast<microseconds>(t2 - t1).count() / 1000000.0f;
 	cout << "tour construction: " << duration << " seconds" << endl;
@@ -358,7 +484,7 @@ int main(int argc, char * argv[])
 	high_resolution_clock::time_point t6 = high_resolution_clock::now();
 	auto duration3 = duration_cast<microseconds>(t6 - t5).count() / 1000000.0f;
 	cout << "tour optimization 2 time: " << duration3 << " seconds" << endl;
-	cout << "tour length B: " << getTourLength(tour) << endl;
+	cout << "tour length C: " << getTourLength(tour) << endl;
 
 	auto durationTotal = duration_cast<microseconds>(t6 - t1).count() / 1000000.0f;
 	cout << "total time: " << durationTotal << " seconds" << endl;
