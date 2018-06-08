@@ -17,6 +17,10 @@ Project for CS 325 (Algorithms), Oregon State University
 using namespace std;
 using namespace std::chrono;
 
+int rounded(double val) {
+	return val + 0.5;
+}
+
 struct PointHash
 {
 	std::size_t operator()(Point const& p) const noexcept
@@ -68,11 +72,6 @@ void nearestNeighborQuadTree(const vector<Node*>& inCities, vector<Node*>& outTo
 			outTour.push_back(pointsToCities[cityLoc][j]);
 		}
 	}
-}
-
-
-int rounded(double val) {
-	return val + 0.5;
 }
 
 /****************************************************************************
@@ -460,13 +459,9 @@ int main(int argc, char * argv[])
 
 	vector<Node*> tour;
 	high_resolution_clock::time_point t1 = high_resolution_clock::now();
-
+	
 	nearestNeighborQuadTree(cities, tour);
 	
-	//CityDistancePQ graph;
-	//loadCityPriorityQueue(cities, graph);
-	//buildGreedyTour(cities, graph, tour);
-
 	high_resolution_clock::time_point t2 = high_resolution_clock::now();
 	auto duration = duration_cast<microseconds>(t2 - t1).count() / 1000000.0f;
 	cout << "tour construction: " << duration << " seconds" << endl;
@@ -486,8 +481,51 @@ int main(int argc, char * argv[])
 	cout << "tour optimization 2 time: " << duration3 << " seconds" << endl;
 	cout << "tour length C: " << getTourLength(tour) << endl;
 
-	auto durationTotal = duration_cast<microseconds>(t6 - t1).count() / 1000000.0f;
+	int tourLengthFirst = getTourLength(tour);
+
+	if (tour.size() <= 1000) {
+		cout << "Running alternate tour construction for comparison" << endl;
+		vector<Node*> tourB;
+		high_resolution_clock::time_point t1b = high_resolution_clock::now();
+
+		CityDistancePQ graph;
+		loadCityPriorityQueue(cities, graph);
+		buildGreedyTour(cities, graph, tourB);
+
+		high_resolution_clock::time_point t2b = high_resolution_clock::now();
+		auto durationB = duration_cast<microseconds>(t2b - t1b).count() / 1000000.0f;
+		cout << "alt tour construction: " << durationB << " seconds" << endl;
+		cout << "alt tour length A: " << getTourLength(tourB) << endl;
+
+		high_resolution_clock::time_point t3b = high_resolution_clock::now();
+		twoOptImprove(tourB);
+		high_resolution_clock::time_point t4b = high_resolution_clock::now();
+		auto duration2b = duration_cast<microseconds>(t4b - t3b).count() / 1000000.0f;
+		cout << "alt tour optimization 1 time: " << duration2b << " seconds" << endl;
+		cout << "alt tour length B: " << getTourLength(tourB) << endl;
+
+		high_resolution_clock::time_point t5b = high_resolution_clock::now();
+		performOrOpt(tourB, programStart);
+		high_resolution_clock::time_point t6b = high_resolution_clock::now();
+		auto duration3b = duration_cast<microseconds>(t6b - t5b).count() / 1000000.0f;
+		cout << "alt tour optimization 2 time: " << duration3b << " seconds" << endl;
+		cout << "alt tour length C: " << getTourLength(tourB) << endl;
+
+		int tourLengthSecond = getTourLength(tourB);
+
+		if (tourLengthSecond < tourLengthFirst) {
+			cout << "Using alternate tour." << endl;
+			tour = tourB;
+		}
+		else {
+			cout << "Using original tour." << endl;
+		}
+	}
+
+	high_resolution_clock::time_point endTime = high_resolution_clock::now();
+	auto durationTotal = duration_cast<microseconds>(endTime - programStart).count() / 1000000.0f;
 	cout << "total time: " << durationTotal << " seconds" << endl;
+	cout << "total tour length: " << getTourLength(tour) << endl;
 
 	printTour(tour, inFilename);
 
