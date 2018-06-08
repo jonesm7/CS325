@@ -17,21 +17,30 @@ Project for CS 325 (Algorithms), Oregon State University
 using namespace std;
 using namespace std::chrono;
 
+// This function rounds the given double value to the nearest integer.
 int rounded(double val) {
 	return val + 0.5;
 }
 
+// This struct provides a hashing function to allow the Point class
+// to be used as a key in an unordered_map.
 struct PointHash
 {
 	std::size_t operator()(Point const& p) const noexcept
 	{
 		std::size_t h1 = std::hash<int>{}(p.x);
 		std::size_t h2 = std::hash<int>{}(p.y);
-		return h1 ^ (h2 << 1); // or use boost::hash_combine (see Discussion)
+		return h1 ^ (h2 << 1);
 	}
 };
 
+// nearestNeighborQuadTree constructs a tour of cities using the nearest-neighbor
+// tour construction method (as described at
+// https://en.wikipedia.org/wiki/Nearest_neighbour_algorithm ). It uses a quad tree
+// to optimze neighbor lookups - O(n log n) to construct the quad tree, and O(log n)
+// for each lookup. Thus, the overall algorithm runs in O(n log n) time.
 void nearestNeighborQuadTree(const vector<Node*>& inCities, vector<Node*>& outTour) {
+	// make a copy of the tour with cities at duplicate locations removed
 	unordered_map<Point, vector<Node*>, PointHash> pointsToCities;
 	vector<Node*> cities;
 	for (int i = 0; i < inCities.size(); i++) {
@@ -43,12 +52,18 @@ void nearestNeighborQuadTree(const vector<Node*>& inCities, vector<Node*>& outTo
 			cities.push_back(inCities[i]);
 		}
 	}
+	
+	// Construct the quad tree
 	Quad unusedQuadTree = Quad(cities);
 
+	// Start the tour with the first city
 	vector<Node*> tour;
 	tour.push_back(cities[0]);
 	unusedQuadTree.remove(cities[0]);
 
+	// For each city, find the nearest city and add it to the tour, then remove
+	// that city from the unused quad tree so that the next nearest city can
+	// be found
 	Node* lastNode = cities[0];
 	int i = 0;
 	while (!unusedQuadTree.isEmpty()) {
@@ -63,6 +78,7 @@ void nearestNeighborQuadTree(const vector<Node*>& inCities, vector<Node*>& outTo
 		i++;
 	}
 
+	// Add back the cities at duplicate locations
 	for (int i = 0; i < tour.size(); i++) {
 		outTour.push_back(tour[i]);
 		Point cityLoc = tour[i]->loc;
@@ -158,6 +174,8 @@ void twoOptImprove(vector<Node*>& tspTour)
 	} while (improved);
 }
 
+// getTourLength computes the length of the given tour. Each individual edge
+// distance is rounded to the nearest integer.
 int getTourLength(const vector<Node*>& tour) {
 	int length = 0;
 	for (int i = 0; i < tour.size(); i++) {
@@ -172,45 +190,62 @@ int getTourLength(const vector<Node*>& tour) {
 	return length;
 }
 
+// shiftSegment shifts the given segment of tour.
+// Cities from tour[i+1] to tour[j] are shifted from their current position
+// to the position after the current city tour[k], that is, between cities
+// tour[k] and tour[k+1].
+// Assumes:  k, k+1 are not within the segment [i+1..j]
 // Based on http://tsp-basics.blogspot.com/2017/03/shifting-segment.html
 void shiftSegment(vector<Node*>& tour, int i, int j, int k) {
 	int segmentSize = (j - i + tour.size()) % tour.size();
 	int shiftSize = ((k - i + tour.size()) - segmentSize + tour.size()) % tour.size();
 	int offset = i + 1 + shiftSize;
+	// Make a copy of the segment before shift.
+	// This will be either length 1, 2, or 3.
 	vector<Node*> segment;
 	for (int pos = 0; pos < segmentSize; pos++) {
 		segment.push_back(tour[(pos + i + 1) % tour.size()]);
 	}
+	// Shift to the left by segmentSize all cities between old position
+	// of right end of the segment and new position of its left end
 	int pos = (i + 1) % tour.size();
 	for (int counter = 1; counter <= shiftSize; counter++) {
 		tour[pos] = tour[(pos + segmentSize) % tour.size()];
 		pos = (pos + 1) % tour.size();
 	}
+	// put the copy of the segment into its new place in the tour
 	for (pos = 0; pos < segmentSize; pos++) {
 		tour[(pos + offset) % tour.size()] = segment[pos];
 	}
 }
 
-/*
-Based on http://tsp-basics.blogspot.com/2017/03/or-opt.html
-Assumes: X1!=Z1
-         X2==successor(X1); Y2==successor(Y1); Z2==successor(Z1)
-*/
+// gainFromSegmentShift computes the gain of the tour length which
+// can be obtained by performing the given segment shift.
+// Cities from X2 to Y1 would be moved from its current position,
+// between X1 and Y2, to position between cities Z1 and Z2.
+// Assumes: X1!=Z1
+//         X2==successor(X1); Y2==successor(Y1); Z2==successor(Z1)
+// Based on http://tsp-basics.blogspot.com/2017/03/or-opt.html
 int gainFromSegmentShift(Point x1, Point x2, Point y1, Point y2, Point z1, Point z2) {
 	int deleteLength = x1.distTo(x2) + y1.distTo(y2) + z1.distTo(z2);
 	int addLength = x1.distTo(y2) + z1.distTo(x2) + y1.distTo(z2);
 	return deleteLength - addLength;
 }
 
-/*
-Based on http://tsp-basics.blogspot.com/2017/03/or-opt.html
-*/
+// performOrOpt optimizes the given tour using Or-opt.
+// It shortens the tour length by repeating Segment Shift moves for segment
+// lengths equal 3, 2, or 1 until either no moves are found that are a shift less
+// than 1000 or 3 minutes have passed since the program started.
+// Short moves are attempted first in order to achieve easy optimizations quickly;
+// the maximum move allowed increases each time no optimizations can be found.
+// Every iteration immediately makes permanent the first move found that
+// gives any length gain.
+// Based on http://tsp-basics.blogspot.com/2017/03/or-opt.html
 void performOrOpt(vector<Node*>& tour, high_resolution_clock::time_point programStart) {
 	bool locallyOptimal = false;
 	int i;
 	int j;
 	int k;
-	int optRuns = 0;
 	high_resolution_clock::time_point start = high_resolution_clock::now();
 	high_resolution_clock::time_point lastPrint = high_resolution_clock::now();
 
@@ -218,15 +253,16 @@ void performOrOpt(vector<Node*>& tour, high_resolution_clock::time_point program
 	int maxSearch = 1000;
 	while (searchWindow < maxSearch &&
 		duration_cast<microseconds>(high_resolution_clock::now() - programStart).count() / 1000000.0f < 178.0) {
+			
+		// If our search with the current searchWindow yielded no improvements,
+		// then increase the size of the search window.
 		if (locallyOptimal) {
 			searchWindow += 10;
 		}
 
-		//cout << "---" << endl;
-		//cout << "after or-opt run " << optRuns << ": " << getTourLength(tour) << endl;
-		optRuns++;
 		high_resolution_clock::time_point now = high_resolution_clock::now();
 		
+		// Print the elapsed time every 10 seconds
 		auto lastPrintDuration = duration_cast<microseconds>(now - lastPrint).count() / 1000000.0f;
 		if (lastPrintDuration > 10) {
 			auto duration = duration_cast<microseconds>(now - start).count() / 1000000.0f;
@@ -237,6 +273,7 @@ void performOrOpt(vector<Node*>& tour, high_resolution_clock::time_point program
 		locallyOptimal = true;
 		for (int segmentLen = 3; segmentLen >= 1; segmentLen--) {
 			bool break2 = false;
+			// Use every city in the tour as a starting point.
 			for (int pos = 0; pos < tour.size() && !break2; pos++) {
 				int i = pos;
 				Point x1 = tour[i]->loc;
@@ -248,6 +285,8 @@ void performOrOpt(vector<Node*>& tour, high_resolution_clock::time_point program
 				int shiftCount = 0;
 				int posShift = segmentLen + 1;
 				int negShift = tour.size() - 1;
+				// Alternate back & forward shifts until finding an optimization or
+				// hitting the search window.
 				while (posShift < searchWindow && negShift > tour.size() - searchWindow) {
 					int shift;
 					if (shiftCount % 2 == 0) {
@@ -266,7 +305,6 @@ void performOrOpt(vector<Node*>& tour, high_resolution_clock::time_point program
 
 					if (gainFromSegmentShift(x1, x2, y1, y2, z1, z2) > 0) {
 						shiftSegment(tour, i, j, k);
-						//cout << "i = " << i << ", j = " << j << ", k = " << k << "; shift = " << shift << endl;
 						locallyOptimal = false;
 						break2 = true;
 						break;
@@ -278,8 +316,8 @@ void performOrOpt(vector<Node*>& tour, high_resolution_clock::time_point program
 	}
 }
 
-//Structure to represent an edge. Each CityDistance structure
-//hold the distance to a particular city.
+// Structure to represent an edge. Each CityDistance structure
+// holds the distance to a particular city.
 struct CityDistance {
 	int city;
 	int nextCity;
@@ -293,8 +331,8 @@ struct CityDistance {
 	}
 };
 
-//Used to modify the stl priority_heap from max heap to min heap.
-//Reference: https://www.geeksforgeeks.org/implement-min-heap-using-stl/
+// Used to modify the stl priority_heap from max heap to min heap.
+// Reference: https://www.geeksforgeeks.org/implement-min-heap-using-stl/
 class myComparator
 {
 public:
@@ -307,9 +345,9 @@ public:
 typedef priority_queue<CityDistance, vector<CityDistance>, myComparator> CityDistancePQ;
 
 /**************************************************************************************
-**                          loadGraphOfMapAsPriorityQueue                            **
-** This function creates the map representation in memory. It returns a min-heap 	 **
-** holding all edges of the graph, with the edge that has the minimum distance as	 **
+**                          loadCityPriorityQueue                                    **
+** This function creates the map representation in memory. It returns a min-heap 	   **
+** holding all edges of the graph, with the edge that has the minimum distance as	   **
 ** the "root" of the heap.                                                           **
 **************************************************************************************/
 void loadCityPriorityQueue(const vector<Node*>& cities, CityDistancePQ& graph)
@@ -322,6 +360,9 @@ void loadCityPriorityQueue(const vector<Node*>& cities, CityDistancePQ& graph)
 	}
 }
 
+// buildGreedyTour constructs a city using the greedy tour construction method
+// as described in http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.70.7639&rep=rep1&type=pdf
+// ("The Traveling Salesman Problem: A Case Study in Local Optimization").
 void buildGreedyTour(const vector<Node*>& cities, CityDistancePQ& graph, vector<Node*>& tspTour)
 {
 	int cityCount = cities.size();
@@ -397,6 +438,8 @@ void buildGreedyTour(const vector<Node*>& cities, CityDistancePQ& graph, vector<
 	}
 }
 
+// printTour prints the tour to a file based on outputFileBase.
+// The output file name is outputFileBase + ".tour". 
 void printTour(const vector<Node*>& tour, string outputFileBase) {
 	int length = 0;
 	for (int i = 0; i < tour.size(); i++) {
